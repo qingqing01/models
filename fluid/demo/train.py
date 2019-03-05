@@ -23,8 +23,7 @@ for i in range(epochs):
             trn_scalar_loss.add_record(step, mloss)
             trn_scalar_acc.add_record(step, macc)
             train_acc, train_cost = [], []
-            print("Epoc:{}, Iter:{}, loss:{}, acc{}".format(i, step, mloss,
-                                                            macc))
+            print("Epoc:{}, Iter:{}, loss:{}, acc{}".format(i, step, mloss, macc))
 
             test_acc, test_cost = [], []
             for data in test_reader():
