@@ -22,6 +22,7 @@ default_epsilon = 1e-3
 default_norm_type = 'bn'
 default_group_number = 32
 depthwise_use_cudnn = False
+sync_bn = False
 
 bn_regularizer = fluid.regularizer.L2DecayRegularizer(regularization_coeff=0.0)
 depthwise_regularizer = fluid.regularizer.L2DecayRegularizer(
@@ -112,6 +113,22 @@ def group_norm(input, G, eps=1e-5, param_attr=None, bias_attr=None):
 
 def bn(*args, **kargs):
     if default_norm_type == 'bn':
+        #if sync_bn:
+        #    with scope('BatchNorm'):
+        #        return append_op_result(
+        #            fluid.layers.sync_batch_norm(
+        #                *args,
+        #                epsilon=default_epsilon,
+        #                momentum=bn_momentum,
+        #                param_attr=fluid.ParamAttr(
+        #                    name=name_scope + 'gamma', regularizer=bn_regularizer),
+        #                bias_attr=fluid.ParamAttr(
+        #                    name=name_scope + 'beta', regularizer=bn_regularizer),
+        #                moving_mean_name=name_scope + 'moving_mean',
+        #                moving_variance_name=name_scope + 'moving_variance',
+        #                **kargs),
+        #            'bn')
+        #else:
         with scope('BatchNorm'):
             return append_op_result(
                 fluid.layers.batch_norm(

@@ -138,6 +138,6 @@ for i in range(total_step):
     mp = (wrong + right) != 0
     miou2 = np.mean((right[mp] * 1.0 / (right[mp] + wrong[mp])))
     if args.verbose:
-        print('step: %s, mIoU: %s' % (i + 1, miou2), flush=True)
+        print('step: %s, mIoU: %s' % (i + 1, miou2))
     else:
-        print('\rstep: %s, mIoU: %s' % (i + 1, miou2), end='\r', flush=True)
+        print('\rstep: %s, mIoU: %s' % (i + 1, miou2))

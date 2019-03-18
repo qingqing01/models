@@ -34,8 +34,9 @@ add_arg('num_classes',          int,    19,     "Number of classes.")
 add_arg('load_logit_layer',     bool,   True,   "Load last logit fc layer or not. If you are training with different number of classes, you should set to False.")
 add_arg('memory_optimize',      bool,   True,   "Using memory optimizer.")
 add_arg('norm_type',            str,    'bn',   "Normalization type, should be 'bn' or 'gn'.")
-add_arg('profile',              bool,    False, "Enable profiler.")
-add_arg('use_py_reader',        bool,    True,  "Use py reader.")
+add_arg('sync_bn',              bool,   False,  "Use sync bn or not.")
+add_arg('profile',              bool,   False, "Enable profiler.")
+add_arg('use_py_reader',        bool,   True,  "Use py reader.")
 parser.add_argument(
     '--enable_ce',
     action='store_true',
@@ -51,6 +52,7 @@ def profile_context(profile=True):
         yield
 
 def load_model():
+    print("Load model from %s \n", args.init_weights_path)
     if os.path.isdir(args.init_weights_path):
         load_vars = [
             x for x in tp.list_vars()
@@ -87,7 +89,9 @@ def loss(logit, label):
     label = fluid.layers.reshape(label, [-1, 1])
     label = fluid.layers.cast(label, 'int64')
     label_nignore = fluid.layers.reshape(label_nignore, [-1, 1])
-    loss = fluid.layers.softmax_with_cross_entropy(logit, label, ignore_index=255, numeric_stable_mode=True)
+    #loss = fluid.layers.softmax_with_cross_entropy(logit, label, ignore_index=255, numeric_stable_mode=True)
+    loss = fluid.layers.softmax(logit, use_cudnn=False)
+    loss = fluid.layers.cross_entropy(loss, label, ignore_index=255)
     label_nignore.stop_gradient = True
     label.stop_gradient = True
     return loss, label_nignore
@@ -101,6 +105,7 @@ models.bn_momentum = 0.9997
 models.dropout_keep_prop = 0.9
 models.label_number = args.num_classes
 models.default_norm_type = args.norm_type
+models.sync_bn = args.sync_bn
 deeplabv3p = models.deeplabv3p
 
 sp = fluid.Program()
@@ -153,17 +158,24 @@ with fluid.program_guard(tp, sp):
     optimize_ops, params_grads = opt.minimize(loss_mean, startup_program=sp)
     # ir memory optimizer has some issues, we need to seed grad persistable to
     # avoid this issue
-    for p,g in params_grads: g.persistable = True
+    #for p,g in params_grads: g.persistable = True
 
 
 exec_strategy = fluid.ExecutionStrategy()
 exec_strategy.num_threads = fluid.core.get_cuda_device_count()
-exec_strategy.num_iteration_per_drop_scope = 100
+#exec_strategy.num_iteration_per_drop_scope = 100
 build_strategy = fluid.BuildStrategy()
 if args.memory_optimize:
     build_strategy.fuse_relu_depthwise_conv = True
     build_strategy.enable_inplace = True
     build_strategy.memory_optimize = True
+else:
+    build_strategy.enable_inplace = False
+    build_strategy.memory_optimize = False
+    fluid.memory_optimize(tp, skip_opt_set=set([loss_mean]))
+#build_strategy.enable_sequential_execution = True
+build_strategy.sync_batch_norm = args.sync_bn
+build_strategy.debug_graphviz_path = "graph"
 
 place = fluid.CPUPlace()
 if args.use_gpu:
@@ -216,11 +228,12 @@ with profile_context(args.profile):
         train_loss = np.mean(train_loss)
         end_time = time.time()
         total_time += end_time - begin_time
-        if i % 100 == 0:
+        if i % 10 == 0:
+            print("step {:d}, loss: {:.6f}, step_time_cost: {:.3f}".format(
+                i, train_loss, end_time - prev_start_time))
+        if i % 1000 == 0:
             print("Model is saved to", args.save_weights_path)
             save_model()
-        print("step {:d}, loss: {:.6f}, step_time_cost: {:.3f}".format(
-            i, train_loss, end_time - prev_start_time))
 
 print("Training done. Model is saved to", args.save_weights_path)
 save_model()
