@@ -35,12 +35,15 @@ add_arg('load_logit_layer',     bool,   True,   "Load last logit fc layer or not
 add_arg('memory_optimize',      bool,   True,   "Using memory optimizer.")
 add_arg('norm_type',            str,    'bn',   "Normalization type, should be 'bn' or 'gn'.")
 add_arg('profile',              bool,    False, "Enable profiler.")
+add_arg('reader_tf',            bool,    False, "User TF data argu.")
 add_arg('use_py_reader',        bool,    True,  "Use py reader.")
+add_arg('norm',                 bool,    False, "Norm data or not.")
 parser.add_argument(
     '--enable_ce',
     action='store_true',
-    help='If set, run the task with continuous evaluation logs. Users can ignore this agument.')
+    help='If set, run the task with continuous evaluation logs.')
 #yapf: enable
+
 
 @contextlib.contextmanager
 def profile_context(profile=True):
@@ -71,10 +74,9 @@ def load_model():
 
 
 
-def save_model():
+def save_model(path):
     assert not os.path.isfile(args.save_weights_path)
-    fluid.io.save_params(
-        exe, dirname=args.save_weights_path, main_program=tp)
+    fluid.io.save_params(exe, dirname=path, main_program=tp)
 
 
 def loss(logit, label):
@@ -87,6 +89,7 @@ def loss(logit, label):
     label = fluid.layers.reshape(label, [-1, 1])
     label = fluid.layers.cast(label, 'int64')
     label_nignore = fluid.layers.reshape(label_nignore, [-1, 1])
+    #loss = fluid.layers.softmax_with_cross_entropy(logit, label, ignore_index=255, numeric_stable_mode=True)
     logit = fluid.layers.softmax(logit, use_cudnn=False)
     loss = fluid.layers.cross_entropy(logit, label, ignore_index=255)
     label_nignore.stop_gradient = True
@@ -104,20 +107,25 @@ models.label_number = args.num_classes
 models.default_norm_type = args.norm_type
 deeplabv3p = models.deeplabv3p
 
+if args.reader_tf:
+    reader.default_config['min_resize'] = None
+    reader.default_config['max_resize'] = None
+
 sp = fluid.Program()
 tp = fluid.Program()
 
 # only for ce
-if args.enable_ce:
-    SEED = 102
-    sp.random_seed = SEED
-    tp.random_seed = SEED
+#if args.enable_ce:
+#    SEED = 102
+#    sp.random_seed = SEED
+#    tp.random_seed = SEED
 
 crop_size = args.train_crop_size
 batch_size = args.batch_size
 image_shape = [crop_size, crop_size]
 reader.default_config['crop_size'] = crop_size
 reader.default_config['shuffle'] = True
+reader.default_config['norm'] = args.norm
 num_classes = args.num_classes
 weight_decay = 0.00004
 
@@ -159,7 +167,7 @@ with fluid.program_guard(tp, sp):
 
 exec_strategy = fluid.ExecutionStrategy()
 exec_strategy.num_threads = fluid.core.get_cuda_device_count()
-exec_strategy.num_iteration_per_drop_scope = 100
+#exec_strategy.num_iteration_per_drop_scope = 100
 build_strategy = fluid.BuildStrategy()
 if args.memory_optimize:
     build_strategy.fuse_relu_depthwise_conv = True
@@ -176,7 +184,7 @@ if args.init_weights_path:
     print("load from:", args.init_weights_path)
     load_model()
 
-dataset = reader.CityscapeDataset(args.dataset_path, 'train')
+dataset = reader.CityscapeDataset(args.dataset_path, 'train', tf_reader=args.reader_tf)
 
 if args.parallel:
     binary = fluid.compiler.CompiledProgram(tp).with_data_parallel(
@@ -184,7 +192,7 @@ if args.parallel:
         build_strategy=build_strategy,
         exec_strategy=exec_strategy)
 else:
-    binary = fluid.compiler.CompiledProgram(tp)
+    binary = fluid.compiler.CompiledProgram(main)
 
 if args.use_py_reader:
     assert(batch_size % fluid.core.get_cuda_device_count() == 0)
@@ -216,15 +224,18 @@ with profile_context(args.profile):
             train_loss, = exe.run(binary, fetch_list=[loss_mean])
         train_loss = np.mean(train_loss)
         end_time = time.time()
-        total_time += end_time - begin_time
-        if i % 1000 == 0:
-            print("Model is saved to", args.save_weights_path)
-            save_model()
-        print("step {:d}, loss: {:.6f}, step_time_cost: {:.3f}".format(
-            i, train_loss, end_time - prev_start_time))
+        #total_time += end_time - begin_time
+        if i % 10 == 0 or i == (total_step - 1):
+            print("step {:d}, loss: {:.6f}, step_time_cost: {:.3f}".format(
+                i, train_loss, end_time - prev_start_time))
+        if i % 50000 == 0:
+            path = os.path.join(args.save_weights_path, str(i))
+            print("Model is saved to", path)
+            save_model(path)
 
-print("Training done. Model is saved to", args.save_weights_path)
-save_model()
+final_path = os.path.join(args.save_weights_path, 'model_final')
+print("Training done. Model is saved to", final_path)
+save_model(final_path)
 
 if args.enable_ce:
     gpu_num = fluid.core.get_cuda_device_count()

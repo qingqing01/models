@@ -23,10 +23,12 @@ add_arg = lambda *args: utility.add_arguments(*args, argparser=parser)
 add_arg('total_step',           int,    -1,     "Number of the step to be evaluated, -1 for full evaluation.")
 add_arg('init_weights_path',    str,    None,   "Path of the weights to evaluate.")
 add_arg('dataset_path',         str,    None,   "Cityscape dataset path.")
+add_arg('verbose',              bool,   False,  "Print mIoU for each step if verbose.")
 add_arg('use_gpu',              bool,   True,   "Whether use GPU or CPU.")
 add_arg('num_classes',          int,    19,     "Number of classes.")
 add_arg('use_py_reader',        bool,   True,   "Use py_reader.")
 add_arg('norm_type',            str,    'bn',   "Normalization type, should be 'bn' or 'gn'.")
+add_arg('norm',                 bool,   False,  "Norm data or not.")
 #yapf: enable
 
 
@@ -69,6 +71,7 @@ tp = fluid.Program()
 batch_size = 1
 reader.default_config['crop_size'] = -1
 reader.default_config['shuffle'] = False
+reader.default_config['norm'] = args.norm
 num_classes = args.num_classes
 
 with fluid.program_guard(tp, sp):
@@ -136,4 +139,7 @@ for i in range(total_step):
     all_correct = right.copy()
     mp = (wrong + right) != 0
     miou2 = np.mean((right[mp] * 1.0 / (right[mp] + wrong[mp])))
-    print('step: %s, mIoU: %s' % (i + 1, miou2))
+    if args.verbose:
+        print('step: %s, mIoU: %s' % (i + 1, miou2))#, flush=True)
+    else:
+        print('\rstep: %s, mIoU: %s' % (i + 1, miou2))#, end='\r', flush=True)
