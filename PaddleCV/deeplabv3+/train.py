@@ -217,7 +217,7 @@ with profile_context(args.profile):
         train_loss = np.mean(train_loss)
         end_time = time.time()
         total_time += end_time - begin_time
-        if i % 100 == 0:
+        if i % 1000 == 0:
             print("Model is saved to", args.save_weights_path)
             save_model()
         print("step {:d}, loss: {:.6f}, step_time_cost: {:.3f}".format(
