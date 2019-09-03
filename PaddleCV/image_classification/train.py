@@ -273,7 +273,10 @@ def build_program(is_train, main_prog, startup_prog, args):
     model_list = [m for m in dir(models) if "__" not in m]
     assert model_name in model_list, "{} is not in lists: {}".format(args.model,
                                                                      model_list)
-    model = models.__dict__[model_name]()
+    if model_name.startswith('EfficientNet'):
+        model = models.__dict__[model_name](is_test=False if is_train else True)
+    else:
+        model = models.__dict__[model_name]()
     with fluid.program_guard(main_prog, startup_prog):
         use_mixup = args.use_mixup
         if is_train and use_mixup:

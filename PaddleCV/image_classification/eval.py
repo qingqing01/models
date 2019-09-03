@@ -59,7 +59,10 @@ def eval(args):
     label = fluid.layers.data(name='label', shape=[1], dtype='int64')
 
     # model definition
-    model = models.__dict__[model_name]()
+    if model_name.startswith('EfficientNet'):
+        model = models.__dict__[model_name](is_test=True)
+    else:
+        model = models.__dict__[model_name]()
 
     if model_name == "GoogleNet":
         out0, out1, out2 = model.net(input=image, class_dim=class_dim)
